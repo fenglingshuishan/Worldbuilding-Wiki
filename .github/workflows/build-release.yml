@@ -2,6 +2,8 @@ name: Build release artifacts
 
 on:
   push:
+    branches:
+      - "main"
     tags:
       - "v*"
   workflow_dispatch:
