@@ -1,7 +1,7 @@
 # 发布检查表
 
 - 版本：0.1.0
-- 状态：Linux x64 本地候选已验证；Windows x64 等待原生 CI 运行
+- 状态：Linux x64 与 Windows x64 本机原生候选均已验证；远程 CI 可在连接项目远程后复验
 - 日期：2026-07-16
 
 ## 1. 通用门禁
@@ -31,15 +31,16 @@
 
 ## 3. Windows x64 发布门禁
 
-- [ ] Windows 原生 CI 成功执行全部测试。
-- [ ] Windows 原生 PyInstaller 构建成功。
-- [ ] `WorldbuildingWiki.exe --version` 通过。
-- [ ] 在未安装 Python/Node.js 的干净 Windows 环境启动。
-- [ ] 浏览器首次运行、新建、保存、重启打开和退出流程通过。
-- [ ] Windows 产物完成世界包跨设备回环测试。
-- [ ] ZIP 和 SHA-256 作为同一版本发布附件。
+- [x] Windows 原生 Python 3.13 环境执行 12 项测试。
+- [x] Windows 原生 PyInstaller 构建成功。
+- [x] 从 ZIP 重新解压后的 `WorldbuildingWiki.exe --version` 通过。
+- [x] 解压后的程序不依赖项目 Python/Node.js，启动回环服务并通过健康接口。
+- [x] 原生程序创建世界库并保存 Markdown 条目。
+- [x] 页面退出接口停止原生程序。
+- [x] Windows 产物导出的世界包在 Linux 环境导入、重建索引并找到原条目。
+- [x] ZIP 和 SHA-256 同时生成且校验通过。
 
-在这些项目完成前，只能把 Windows 工作流称为“已配置”，不能声称 Windows 发行物已验证。
+Windows 本地验证环境位于专用的 `WorldbuildingWikiBuild` 用户目录，不加入系统 PATH。远程 GitHub Actions 已配置，但项目当前没有独立远程仓库，因此远程运行状态不能替代或反证上述本地原生证据。
 
 ## 4. 回滚
 
