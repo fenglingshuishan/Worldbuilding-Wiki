@@ -78,7 +78,7 @@ def main() -> int:
     output = (root / args.output).resolve()
     output.mkdir(parents=True, exist_ok=True)
     slug = artifact_slug()
-    base_name = f"Worldbuilding-Wiki-0.1.0-{slug}"
+    base_name = f"Worldbuilding-Wiki-0.1.1-{slug}"
     if platform.system() == "Windows":
         archive = output / f"{base_name}.zip"
         with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as package:

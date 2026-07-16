@@ -27,7 +27,7 @@
 ## 3. 发行包结构
 
 ```text
-Worldbuilding-Wiki-0.1.0-windows-x64/
+Worldbuilding-Wiki-0.1.1-windows-x64/
 ├── WorldbuildingWiki.exe
 ├── app/                    # 解释器、依赖、前端和内置模板
 ├── README.txt

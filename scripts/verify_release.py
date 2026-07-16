@@ -80,7 +80,7 @@ def main() -> int:
             text=True,
             timeout=30,
         )
-        if "worldbuilding-wiki 0.1.0" not in result.stdout.lower():
+        if "worldbuilding-wiki 0.1.1" not in result.stdout.lower():
             raise SystemExit(f"unexpected version output: {result.stdout!r}")
         if platform.system() != "Windows" and not os.access(executable, os.X_OK):
             raise SystemExit("standalone executable is not executable")

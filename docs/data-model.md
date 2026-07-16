@@ -155,7 +155,7 @@ aurora-2026-07-16.worldvault
   "format": "worldbuilding-vault",
   "format_version": 1,
   "exported_by": "worldbuilding-wiki",
-  "app_version": "0.1.0",
+  "app_version": "0.1.1",
   "exported_at": "2026-07-16T18:00:00+08:00",
   "scope": "world",
   "root_ids": ["aurora"],
