@@ -1,39 +1,64 @@
 # Worldbuilding Wiki
 
-面向个人创作者的本地优先世界观知识库。它用 Wiki 的链接和检索方式组织设定，同时显式管理正史、传闻、草稿、时间线与人物关系，避免设定在长期创作中互相冲突。
+面向个人创作者的本地优先世界观知识库。当前版本 `0.1.0` 已可运行：支持多世界、结构化条目、Markdown/Wiki 链接、附件、搜索、关系、时间线、一致性检查、`.worldvault` 导入导出和静态 HTML 审阅包。
 
-当前处于产品设计阶段，尚未进入编码。
+程序默认仅监听 `127.0.0.1`。世界观正文保存在用户选择的世界库中，SQLite 只保存可删除重建的索引；程序发行包不附带任何具体世界观数据。
 
-## 设计目标
+## 快速使用
 
-- Markdown 是可迁移、可用 Git 追踪的设定真源。
-- 支持人物、地点、组织、事件、文化、规则等结构化条目。
-- 支持双向链接、别名、全文检索、关系图和时间线。
-- 区分作者真相、世界内观点、未定草稿和废弃设定。
-- 一致性检查只提出问题，不擅自修改正史。
-- 默认离线运行，仅监听本机，不依赖云服务。
-- 程序发行包不包含私人世界观数据，可在其他设备解压即用。
-- 通过 `.worldvault` 便携包安全导入、导出和跨设备传递设定。
+普通用户应下载与操作系统匹配的独立发行压缩包，解压后运行 `WorldbuildingWiki.exe`（Windows）或 `WorldbuildingWiki`（Linux）。不需要安装 Python、Node.js 或数据库。
 
-## 文档导航
+源码开发方式（工作目录为本仓库）：
 
-- [产品设计](docs/product-design.md)：用户场景、功能边界和交互框架。
-- [数据模型](docs/data-model.md)：条目、关系、时间和文件格式。
-- [技术架构](docs/architecture.md)：本地应用、存储、索引和安全设计。
-- [分发与数据迁移](docs/portability.md)：下载即用发行包、导入导出和跨设备验收。
-- [实施路线](docs/mvp-plan.md)：MVP 范围、阶段和验收标准。
-- [架构决策 0001](docs/decisions/0001-local-first-markdown.md)：为何选择 Markdown 真源与可重建索引。
-- [架构决策 0002](docs/decisions/0002-separate-app-and-portable-vault.md)：为何分离程序与数据并采用便携世界包。
-
-## 预定目录
-
-```text
-worldbuilding-wiki/
-├── app/                 # 应用代码（进入开发阶段后创建）
-├── docs/                # 产品、架构和决策文档
-├── vault/               # 私人世界观 Markdown 内容，可单独迁移为私有仓库
-├── runtime/             # 可重建索引、缓存和日志，不提交 Git
-└── tests/               # 自动化测试（进入开发阶段后创建）
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -e '.[dev]'
+.venv/bin/worldbuilding-wiki
 ```
 
-首发目标是 Windows x64 无运行库依赖的目录式压缩包；Linux x64 使用同样的独立发行模式。每个平台必须在本机环境分别构建和验证，不能把一个平台的可执行文件改名冒充跨平台版本。详见[分发与数据迁移](docs/portability.md)。
+程序会打开本机浏览器。首次运行可新建世界库、打开已有 `vault.yaml`，或导入 `.worldvault`。关闭浏览器不会停止后端；请在“设置”中选择“退出本地程序”。
+
+## 已实现能力
+
+- 人物、地点、组织、事件、群体、文化、规则、物件、概念和来源条目。
+- 正史、草稿、传闻和废弃状态；别名、标签和时间线分支。
+- `[[条目标题]]`、`[[条目 ID|显示名]]`、反向链接与局部关系。
+- 多世界、模糊时间范围、语义关系和关系目标校验。
+- 中文标题、别名、正文和标签搜索。
+- 图片、地图、PDF、音频和文本附件；单文件上限 50 MiB。
+- 断链、重复别名、孤立条目、废弃引用、事件顺序和地点重叠检查。
+- 带格式版本和 SHA-256 的 `.worldvault`；安全预检、冲突选择、暂存、恢复快照和失败回滚。
+- 无需安装应用即可浏览的静态 HTML 审阅包。
+- wheel/sdist、Linux 独立目录程序，以及 Windows/Linux 原生构建流水线。
+
+## 文档
+
+- [用户指南](docs/user-guide.md)
+- [开发与验证](docs/development.md)
+- [发布检查表](docs/release-checklist.md)
+- [产品设计](docs/product-design.md)
+- [数据模型](docs/data-model.md)
+- [技术架构](docs/architecture.md)
+- [分发与数据迁移](docs/portability.md)
+- [实施路线与验收场景](docs/mvp-plan.md)
+- [架构决策](docs/decisions/)
+
+## 项目目录
+
+```text
+src/worldbuilding_wiki/  应用、领域逻辑和内置前端
+tests/                   存储、索引、迁移、安全和 API 测试
+scripts/                 构建与发行验证脚本
+packaging/               发行包内用户说明
+docs/                    产品、架构、使用和维护文档
+runtime/                 仓库内占位；实际运行状态不提交 Git
+```
+
+## 数据边界
+
+- 世界库：Markdown、YAML、地图和附件，是用户长期数据。
+- 运行目录：SQLite 索引、导入暂存、临时导出和恢复快照。
+- 应用目录：只读程序、依赖、前端和内置说明。
+- 密钥：当前版本未启用外部 AI，也不会写入世界传输包。
+
+不支持多台设备同时写入同一个网络共享目录。跨设备编辑请显式导出、复制并导入 `.worldvault`，或在应用关闭后使用用户自行管理的 Git 工作流。
