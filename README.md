@@ -12,14 +12,18 @@
 - 区分作者真相、世界内观点、未定草稿和废弃设定。
 - 一致性检查只提出问题，不擅自修改正史。
 - 默认离线运行，仅监听本机，不依赖云服务。
+- 程序发行包不包含私人世界观数据，可在其他设备解压即用。
+- 通过 `.worldvault` 便携包安全导入、导出和跨设备传递设定。
 
 ## 文档导航
 
 - [产品设计](docs/product-design.md)：用户场景、功能边界和交互框架。
 - [数据模型](docs/data-model.md)：条目、关系、时间和文件格式。
 - [技术架构](docs/architecture.md)：本地应用、存储、索引和安全设计。
+- [分发与数据迁移](docs/portability.md)：下载即用发行包、导入导出和跨设备验收。
 - [实施路线](docs/mvp-plan.md)：MVP 范围、阶段和验收标准。
 - [架构决策 0001](docs/decisions/0001-local-first-markdown.md)：为何选择 Markdown 真源与可重建索引。
+- [架构决策 0002](docs/decisions/0002-separate-app-and-portable-vault.md)：为何分离程序与数据并采用便携世界包。
 
 ## 预定目录
 
@@ -32,4 +36,4 @@ worldbuilding-wiki/
 └── tests/               # 自动化测试（进入开发阶段后创建）
 ```
 
-进入实现阶段前，应先确认 [实施路线](docs/mvp-plan.md) 中列出的三个产品选择。
+首发目标是 Windows x64 无运行库依赖的目录式压缩包；Linux x64 使用同样的独立发行模式。每个平台必须在本机环境分别构建和验证，不能把一个平台的可执行文件改名冒充跨平台版本。详见[分发与数据迁移](docs/portability.md)。
