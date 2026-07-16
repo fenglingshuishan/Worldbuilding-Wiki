@@ -277,11 +277,23 @@ class Vault:
         return target, target.read_bytes()
 
     def iter_entries(self) -> Iterable[EntryDocument]:
-        for path in sorted((self.root / "worlds").glob("*/pages/*/*.md")):
+        for path in self.entry_paths():
             try:
                 yield self.read_path(path)
             except ValidationError:
                 continue
+
+    def entry_paths(self) -> list[Path]:
+        return sorted((self.root / "worlds").glob("*/pages/*/*.md"))
+
+    def entry_validation_errors(self) -> list[dict[str, str]]:
+        errors = []
+        for path in self.entry_paths():
+            try:
+                self.read_path(path)
+            except (OSError, UnicodeDecodeError, ValidationError) as exc:
+                errors.append({"path": path.relative_to(self.root).as_posix(), "message": str(exc)})
+        return errors
 
     def read_path(self, path: Path) -> EntryDocument:
         safe_path = self._inside(path)

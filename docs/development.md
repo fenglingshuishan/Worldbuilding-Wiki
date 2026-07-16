@@ -34,7 +34,7 @@ curl --noproxy '*' -fsS http://127.0.0.1:3764/api/health
 .venv/bin/python -m compileall -q src scripts
 ```
 
-测试覆盖 Markdown 往返、乐观锁、中文检索、链接与关系、时间线、一致性检查、危险 Markdown、传输包无损迁移、冲突策略、路径穿越、篡改检测、静态审阅和 HTTP API。
+测试覆盖 Markdown 往返、乐观锁、中文检索、链接与关系、时间线、一致性检查、危险 Markdown、传输包无损迁移、冲突策略、路径穿越、跨平台路径碰撞、损坏/重复条目、篡改检测、静态审阅和 HTTP API。
 
 ## 3. Python 发行包
 

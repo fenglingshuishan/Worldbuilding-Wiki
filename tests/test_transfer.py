@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import zipfile
 from pathlib import Path
 
@@ -123,3 +124,48 @@ def test_tampered_content_is_rejected(service: WorldbuildingService, tmp_path: P
     manager = TransferManager(tmp_path / "imports", tmp_path / "exports")
     with pytest.raises(TransferError, match="校验和"):
         manager._validate_archive(tampered, extract_to=None)
+
+
+@pytest.mark.parametrize(
+    ("names", "message"),
+    [
+        (("content/Map.txt", "content/map.txt"), "重复路径"),
+        (("content/CON.txt",), "Windows 保留名称"),
+    ],
+)
+def test_import_rejects_cross_platform_unsafe_paths(
+    tmp_path: Path, names: tuple[str, ...], message: str
+) -> None:
+    archive = tmp_path / "cross-platform-unsafe.worldvault"
+    with zipfile.ZipFile(archive, "w") as package:
+        for name in names:
+            package.writestr(name, "data")
+        package.writestr(
+            "manifest.json", json.dumps({"format": "worldbuilding-vault", "format_version": 1})
+        )
+        package.writestr("checksums.sha256", "")
+    manager = TransferManager(tmp_path / "imports", tmp_path / "exports")
+    with pytest.raises(TransferError, match=message):
+        manager._validate_archive(archive, extract_to=tmp_path / "out")
+
+
+@pytest.mark.parametrize("problem", ["invalid", "duplicate"])
+def test_import_rejects_invalid_or_duplicate_entries(
+    service: WorldbuildingService, tmp_path: Path, problem: str
+) -> None:
+    entry = add_entry(service)
+    vault, _ = service.require()
+    original = vault.find_entry(entry["id"])
+    if problem == "invalid":
+        original.path.with_name("invalid.md").write_text(
+            "---\n[broken yaml\n---\n", encoding="utf-8"
+        )
+        message = "无法解析的条目"
+    else:
+        shutil.copy2(original.path, original.path.with_name("duplicate.md"))
+        message = "重复条目 ID"
+
+    archive = service.export_worldvault("vault", []).read_bytes()
+    receiving = WorldbuildingService(AppPaths(tmp_path / "receiving"))
+    with pytest.raises(TransferError, match=message):
+        receiving.preview_import(archive, mode="new", new_vault_name="新设备")

@@ -8,6 +8,7 @@ from itertools import combinations
 from pathlib import Path
 from typing import Any
 
+from worldbuilding_wiki.errors import ValidationError
 from worldbuilding_wiki.store import Vault, extract_wiki_links
 
 
@@ -88,7 +89,26 @@ class VaultIndex:
                 pass
 
     def rebuild(self, vault: Vault) -> dict[str, int]:
-        documents = list(vault.iter_entries())
+        raw_documents = []
+        invalid_files = []
+        for path in vault.entry_paths():
+            try:
+                raw_documents.append(vault.read_path(path))
+            except (OSError, UnicodeDecodeError, ValidationError) as exc:
+                invalid_files.append(
+                    {"path": path.relative_to(vault.root).as_posix(), "message": str(exc)}
+                )
+        documents = []
+        seen_ids: dict[str, str] = {}
+        duplicate_ids = []
+        for document in raw_documents:
+            entry_id = str(document.metadata["id"])
+            relative = document.path.relative_to(vault.root).as_posix()
+            if entry_id in seen_ids:
+                duplicate_ids.append({"id": entry_id, "paths": [seen_ids[entry_id], relative]})
+                continue
+            seen_ids[entry_id] = relative
+            documents.append(document)
         ids = {str(doc.metadata["id"]): str(doc.metadata["id"]) for doc in documents}
         refs: dict[str, list[str]] = defaultdict(list)
         for doc in documents:
@@ -111,6 +131,25 @@ class VaultIndex:
             relation_count = 0
             incoming: dict[str, int] = defaultdict(int)
             outgoing: dict[str, int] = defaultdict(int)
+
+            for error in invalid_files:
+                self._add_check(
+                    connection,
+                    "FILE_INVALID",
+                    None,
+                    "error",
+                    f"条目文件无法解析：{error['path']}",
+                    error,
+                )
+            for duplicate in duplicate_ids:
+                self._add_check(
+                    connection,
+                    "ID_DUPLICATE",
+                    duplicate["id"],
+                    "error",
+                    f"条目 ID 重复：{duplicate['id']}",
+                    duplicate,
+                )
 
             for reference, candidates in sorted(refs.items()):
                 unique_candidates = sorted(set(candidates))

@@ -115,6 +115,22 @@ def test_alias_ambiguity_and_event_order_are_reported(service: WorldbuildingServ
     assert "EVENT_ORDER_INVALID" in rules
 
 
+def test_invalid_files_and_duplicate_ids_are_reported(service: WorldbuildingService) -> None:
+    location, _ = create_sample(service)
+    vault, _ = service.require()
+    original = vault.find_entry(location["id"])
+    duplicate = original.path.with_name("duplicate-id.md")
+    duplicate.write_bytes(original.path.read_bytes())
+    invalid = original.path.with_name("invalid-markdown.md")
+    invalid.write_text("---\n[broken yaml\n---\n", encoding="utf-8")
+
+    result = service.reindex()
+    rules = {item["rule_id"] for item in service.checks()}
+    assert result["entries"] == 2
+    assert "FILE_INVALID" in rules
+    assert "ID_DUPLICATE" in rules
+
+
 def test_markdown_renderer_does_not_execute_raw_html() -> None:
     rendered = render_markdown("<script>alert('x')</script>\n\n[坏链接](javascript:alert(1))")
     assert "<script>" not in rendered

@@ -193,7 +193,22 @@ class TransferManager:
         try:
             manifest = self._validate_archive(archive_path, extract_to=content_root)
             incoming = Vault(content_root)
-            incoming_entries = {doc.metadata["id"]: doc for doc in incoming.iter_entries()}
+            entry_errors = incoming.entry_validation_errors()
+            if entry_errors:
+                first = entry_errors[0]
+                raise TransferError(
+                    f"传输包包含无法解析的条目：{first['path']}：{first['message']}"
+                )
+            incoming_entries: dict[str, Any] = {}
+            for document in incoming.iter_entries():
+                entry_id = str(document.metadata["id"])
+                if entry_id in incoming_entries:
+                    first_path = incoming_entries[entry_id].path.relative_to(incoming.root)
+                    second_path = document.path.relative_to(incoming.root)
+                    raise TransferError(
+                        f"传输包包含重复条目 ID：{entry_id}（{first_path} / {second_path}）"
+                    )
+                incoming_entries[entry_id] = document
             target_path = target_path.expanduser().resolve()
             target_entries: dict[str, Any] = {}
             if mode == "new":
@@ -420,12 +435,15 @@ class TransferManager:
             if len(infos) > MAX_FILE_COUNT + 2:
                 raise TransferError("传输包文件数量超过上限")
             names: set[str] = set()
+            canonical_names: set[str] = set()
             expanded = 0
             for info in infos:
                 normalized = self._safe_archive_name(info.filename)
-                if normalized in names:
+                canonical = normalized.casefold()
+                if normalized in names or canonical in canonical_names:
                     raise TransferError(f"传输包包含重复路径：{normalized}")
                 names.add(normalized)
+                canonical_names.add(canonical)
                 mode = info.external_attr >> 16
                 if stat.S_ISLNK(mode):
                     raise TransferError(f"传输包不允许符号链接：{normalized}")
@@ -505,6 +523,21 @@ class TransferManager:
         normalized = path.as_posix()
         if normalized.startswith("/"):
             raise TransferError(f"传输包路径不安全：{name}")
+        reserved = {
+            "CON",
+            "PRN",
+            "AUX",
+            "NUL",
+            *(f"COM{number}" for number in range(1, 10)),
+            *(f"LPT{number}" for number in range(1, 10)),
+        }
+        for part in path.parts:
+            if part.rstrip(" .") != part or any(
+                ord(char) < 32 or char in '<>:"|?*' for char in part
+            ):
+                raise TransferError(f"传输包路径不兼容目标平台：{name}")
+            if part.split(".", 1)[0].upper() in reserved:
+                raise TransferError(f"传输包使用了 Windows 保留名称：{name}")
         return normalized
 
     @staticmethod
