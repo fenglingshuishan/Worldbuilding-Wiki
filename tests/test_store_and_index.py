@@ -135,3 +135,44 @@ def test_markdown_renderer_does_not_execute_raw_html() -> None:
     rendered = render_markdown("<script>alert('x')</script>\n\n[坏链接](javascript:alert(1))")
     assert "<script>" not in rendered
     assert 'href="javascript:' not in rendered
+
+
+def test_platform_dashboard_templates_graph_and_bulk_workflow(
+    service: WorldbuildingService,
+) -> None:
+    location, character = create_sample(service)
+
+    dashboard = service.dashboard()
+    assert dashboard["summary"]["entries"] == 2
+    assert dashboard["summary"]["canonical"] == 2
+    assert dashboard["summary"]["relations"] == 1
+    assert dashboard["by_type"] == {"character": 1, "location": 1}
+    assert dashboard["checks"]["warning"] >= 1
+
+    templates = service.list_templates()
+    assert any(item["id"] == "character-profile" and item["builtin"] for item in templates)
+    custom = service.create_template(
+        {
+            "name": "章节地点",
+            "description": "记录只在单章出现的重要场景。",
+            "type": "location",
+            "tags": ["章节场景"],
+            "body": "## 场景目标\n",
+        }
+    )
+    assert custom["builtin"] is False
+    assert any(item["id"] == custom["id"] for item in service.list_templates())
+
+    graph = service.graph_overview()
+    assert {node["id"] for node in graph["nodes"]} == {location["id"], character["id"]}
+    assert any(edge["label"] == "born_in" for edge in graph["edges"])
+
+    result = service.bulk_update_entries(
+        [location["id"], character["id"]], status="draft", add_tags=["第二轮"]
+    )
+    assert result["updated"] == 2
+    assert all(item["status"] == "draft" for item in service.list_entries())
+    assert all("第二轮" in item["tags"] for item in service.list_entries())
+
+    service.delete_template(custom["id"])
+    assert not any(item["id"] == custom["id"] for item in service.list_templates())

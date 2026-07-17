@@ -529,6 +529,68 @@ class VaultIndex:
         )
         return result
 
+    def dashboard(self) -> dict[str, Any]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT id, type, title, status, world, branch, aliases, tags, body, updated_at "
+                "FROM entries ORDER BY updated_at DESC, title"
+            ).fetchall()
+            check_rows = connection.execute(
+                "SELECT severity, COUNT(*) AS count FROM checks GROUP BY severity"
+            ).fetchall()
+            relation_count = int(connection.execute("SELECT COUNT(*) FROM relations").fetchone()[0])
+            link_count = int(connection.execute("SELECT COUNT(*) FROM links").fetchone()[0])
+
+        by_status: dict[str, int] = defaultdict(int)
+        by_type: dict[str, int] = defaultdict(int)
+        by_world: dict[str, int] = defaultdict(int)
+        tags: dict[str, int] = defaultdict(int)
+        branches = set()
+        developed = 0
+        needs_attention = []
+        summaries = []
+        for row in rows:
+            summary = self._entry_summary(row)
+            summary.pop("body", None)
+            summaries.append(summary)
+            by_status[row["status"]] += 1
+            by_type[row["type"]] += 1
+            by_world[row["world"]] += 1
+            branches.add((row["world"], row["branch"]))
+            for tag in summary["tags"]:
+                tags[tag] += 1
+            has_body = len(str(row["body"]).strip()) >= 80
+            has_structure = bool(summary["tags"] or summary["aliases"])
+            if has_body and has_structure:
+                developed += 1
+            if row["status"] == "draft" or not has_body:
+                needs_attention.append(
+                    {**summary, "reason": "待确认草稿" if row["status"] == "draft" else "正文较短"}
+                )
+
+        total = len(rows)
+        return {
+            "summary": {
+                "entries": total,
+                "canonical": by_status.get("canon", 0),
+                "drafts": by_status.get("draft", 0),
+                "relations": relation_count,
+                "links": link_count,
+                "branches": len(branches),
+                "content_health": round(developed * 100 / total) if total else 0,
+            },
+            "by_status": dict(sorted(by_status.items())),
+            "by_type": dict(sorted(by_type.items(), key=lambda item: (-item[1], item[0]))),
+            "by_world": dict(sorted(by_world.items(), key=lambda item: (-item[1], item[0]))),
+            "checks": {row["severity"]: row["count"] for row in check_rows},
+            "top_tags": [
+                {"name": name, "count": count}
+                for name, count in sorted(tags.items(), key=lambda item: (-item[1], item[0]))[:10]
+            ],
+            "recent": summaries[:8],
+            "needs_attention": needs_attention[:8],
+        }
+
     def graph(self, entry_id: str) -> dict[str, Any]:
         with self.connect() as connection:
             root = connection.execute(
@@ -565,6 +627,43 @@ class VaultIndex:
                 f"SELECT id, type, title, status FROM entries WHERE id IN ({placeholders})",
                 tuple(node_ids),
             ).fetchall()
+        return {"nodes": [dict(row) for row in nodes], "edges": edges}
+
+    def graph_overview(self, limit: int = 250) -> dict[str, Any]:
+        limit = max(1, min(limit, 500))
+        with self.connect() as connection:
+            nodes = connection.execute(
+                "SELECT id, type, title, status, world FROM entries "
+                "ORDER BY updated_at DESC, title LIMIT ?",
+                (limit,),
+            ).fetchall()
+            node_ids = {row["id"] for row in nodes}
+            relation_rows = connection.execute(
+                "SELECT subject, predicate, object FROM relations ORDER BY predicate"
+            ).fetchall()
+            link_rows = connection.execute(
+                "SELECT source_id, target_id FROM links WHERE target_id IS NOT NULL"
+            ).fetchall()
+        edges = [
+            {
+                "source": row["subject"],
+                "target": row["object"],
+                "label": row["predicate"],
+                "kind": "relation",
+            }
+            for row in relation_rows
+            if row["subject"] in node_ids and row["object"] in node_ids
+        ]
+        edges.extend(
+            {
+                "source": row["source_id"],
+                "target": row["target_id"],
+                "label": "提及",
+                "kind": "link",
+            }
+            for row in link_rows
+            if row["source_id"] in node_ids and row["target_id"] in node_ids
+        )
         return {"nodes": [dict(row) for row in nodes], "edges": edges}
 
     @staticmethod

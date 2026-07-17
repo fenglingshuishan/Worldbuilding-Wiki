@@ -1,49 +1,46 @@
 # 发布检查表
 
-- 版本：0.1.1
-- 状态：Linux x64 与 Windows x64 本机原生候选均已验证；远程 CI 已启用
-- 日期：2026-07-16
+- 版本：0.2.0
+- 状态：本地候选已验证；`main` 与标签构建由 GitHub Actions 复验
+- 日期：2026-07-17
+- 发行对象：Python wheel/sdist、Linux x64 与 Windows x64 独立程序
 
 ## 1. 通用门禁
 
-- [x] Ruff 静态检查通过。
-- [x] 17 项自动化测试通过。
-- [x] Python 源码可编译。
-- [x] wheel 和 sdist 内容检查通过。
-- [x] wheel 在全新 `/tmp` 虚拟环境安装，`--version` 正确。
-- [x] 已安装 wheel 在源码目录外启动并通过真实健康接口。
-- [x] 传输包执行“来源导出—新设备导入—重建索引—条目比对”。
-- [x] 断链、篡改、路径穿越、跨平台路径碰撞、损坏/重复条目和编辑冲突有失败测试。
-- [x] 导入附件冲突需要明确选择，合并前生成恢复快照。
+- [x] Ruff 静态检查与格式检查通过。
+- [x] 20 项自动化测试通过。
+- [x] Python 与 JavaScript 语法检查通过。
+- [x] 工作区文档规范检查无错误或警告。
+- [x] wheel 和 sdist 内容检查通过，包含完整前端资源。
+- [x] wheel 在全新 `/tmp` 虚拟环境安装，版本为 `0.2.0`。
+- [x] 已安装 wheel 在源码目录外启动真实服务，健康、世界库创建和驾驶舱接口通过。
+- [x] 世界库 schema 与 `.worldvault` 格式版本保持兼容。
 
 ## 2. Linux x64 候选
 
 - [x] PyInstaller 目录式程序构建成功。
-- [x] 发行 `tar.gz` 结构检查通过。
+- [x] 发行 `tar.gz` 结构、许可证、说明和变更日志检查通过。
 - [x] 解压后的真实程序在源码和虚拟环境之外执行 `--version`。
-- [x] 解压后的真实程序启动回环服务并通过健康接口。
-- [x] 解压后的真实程序创建世界库并写入 Markdown 条目。
-- [x] 解压后的真实程序导出可通过 ZIP 完整性检查的 `.worldvault`。
+- [x] 解压后的真实程序启动回环服务，创建匿名世界库并读取驾驶舱。
 - [x] 发行包不包含世界库、密钥、索引、日志和 Git 元数据。
-- [x] 生成发行压缩包 SHA-256 文件。
+- [x] 生成独立 SHA-256 文件。
 
-本地验证产物位于被 Git 忽略的 `release/`，不是源码仓库内容。
+Linux 本地候选位于被 Git 忽略的构建目录和 `/tmp`，不提交仓库。
 
-## 3. Windows x64 发布门禁
+## 3. 远程与 Windows 门禁
 
-- [x] Windows 原生 Python 3.13 环境执行 17 项测试。
-- [x] Windows 原生 PyInstaller 构建成功。
-- [x] 从 ZIP 重新解压后的 `WorldbuildingWiki.exe --version` 通过。
-- [x] 解压后的程序不依赖项目 Python/Node.js，启动回环服务并通过健康接口。
-- [x] 原生程序创建世界库并保存 Markdown 条目。
-- [x] 页面退出接口停止原生程序。
-- [x] Windows 产物导出的世界包在 Linux 环境导入、重建索引并找到原条目。
-- [x] ZIP 和 SHA-256 同时生成且校验通过。
+`main` 推送后必须先等待 `Build release artifacts` 完整成功，再创建 `v0.2.0` 标签。标签工作流必须满足：
 
-Windows 本地验证环境位于专用的 `WorldbuildingWikiBuild` 用户目录，不加入系统 PATH。GitHub Actions 在 `main` 和发布标签上重新执行同等测试与原生构建，远程结论与本地原生证据分别记录。
+- Ubuntu 重新执行测试、构建 wheel/sdist，并在全新环境启动 wheel 服务。
+- Windows 与 Ubuntu 原生 runner 分别执行测试、PyInstaller 构建和独立程序真实接口验证。
+- Release 聚合作业只在全部生产作业成功后运行。
+- Release 包含 wheel、sdist、Windows ZIP、Linux tar.gz、平台独立校验文件与统一 `SHA256SUMS`。
+- 标签、Release 和 `main` 中的发布提交一致；Release 不是草稿或预发布。
 
-应用安全加固基线为源码提交 `3618175`；0.1.1 只修正公开发布自动化与版本标识。
+不得用 Linux 结果推断 Windows 可用。Windows 资产只由 Windows runner 生成，Linux 资产只由 Ubuntu runner 生成。
 
-## 4. 回滚
+## 4. 数据与回滚
 
-若发行物验证失败，删除该候选产物，不修改用户世界库。程序升级问题使用旧程序目录重新打开外部世界库；schema 或导入问题使用操作前恢复快照。禁止用 SQLite 索引覆盖 Markdown 真源。
+发布验证只使用匿名临时世界库，不读取真实用户内容。若分支 CI 失败，不创建标签；若标签工作流在 Release 创建前失败，先修复流水线并发布修正版，不覆盖已公开资产。程序升级问题可使用旧程序目录重新打开外部世界库，任何情况下都禁止用 SQLite 索引覆盖 Markdown 真源。
+
+0.1.1 的历史发布证据保留在 Git 标签 `v0.1.1` 及仓库历史中。

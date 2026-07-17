@@ -23,8 +23,32 @@ jobs:
       - run: python -m pip install --upgrade pip
       - run: python -m pip install ".[dev]"
       - run: ruff check src tests scripts
+      - run: ruff format --check src tests scripts
       - run: pytest
+      - run: python -m compileall -q src scripts
       - run: python -m build
+      - name: Verify wheel outside the source checkout
+        run: |
+          python -m venv /tmp/worldwiki-wheel
+          /tmp/worldwiki-wheel/bin/python -m pip install dist/*.whl
+          cd /tmp
+          /tmp/worldwiki-wheel/bin/worldbuilding-wiki --version
+          /tmp/worldwiki-wheel/bin/worldbuilding-wiki --data-dir /tmp/worldwiki-wheel-data serve --no-browser --port 3764 > /tmp/worldwiki-wheel.log 2>&1 &
+          app_pid=$!
+          trap 'kill "$app_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..40}; do
+            if curl --noproxy '*' -fsS http://127.0.0.1:3764/api/health; then
+              break
+            fi
+            if [ "$attempt" -eq 40 ]; then
+              cat /tmp/worldwiki-wheel.log
+              exit 1
+            fi
+            sleep 0.25
+          done
+          curl --noproxy '*' -fsS -X POST http://127.0.0.1:3764/api/application/exit
+          wait "$app_pid"
+          trap - EXIT
       - uses: actions/upload-artifact@v7
         with:
           name: python-distributions
@@ -63,10 +87,13 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
+      - name: Generate unified checksums
+        run: cd artifacts && sha256sum * > SHA256SUMS
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
           gh release create "$GITHUB_REF_NAME" artifacts/*
           --repo "$GITHUB_REPOSITORY"
+          --title "Worldbuilding Wiki $GITHUB_REF_NAME"
           --generate-notes

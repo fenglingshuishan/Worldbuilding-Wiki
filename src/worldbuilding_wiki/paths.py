@@ -81,6 +81,14 @@ class ConfigStore:
         config["active_vault"] = None
         self._write(config)
 
+    def forget_vault(self, path: Path) -> None:
+        resolved = str(path.expanduser().resolve())
+        config = self.read()
+        if config["active_vault"] == resolved:
+            config["active_vault"] = None
+        config["recent_vaults"] = [item for item in config["recent_vaults"] if item != resolved]
+        self._write(config)
+
     def _write(self, value: dict) -> None:
         target = self.paths.config_file
         temporary = target.with_suffix(".tmp")

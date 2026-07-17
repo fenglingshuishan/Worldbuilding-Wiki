@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import threading
 from pathlib import Path
 from typing import Any
@@ -11,7 +12,7 @@ from worldbuilding_wiki.errors import VaultError
 from worldbuilding_wiki.index import VaultIndex, index_path
 from worldbuilding_wiki.paths import AppPaths, ConfigStore
 from worldbuilding_wiki.rendering import render_markdown
-from worldbuilding_wiki.store import Vault, safe_slug
+from worldbuilding_wiki.store import ENTRY_STATUSES, Vault, safe_slug
 from worldbuilding_wiki.transfer import TransferManager
 
 
@@ -79,6 +80,40 @@ class WorldbuildingService:
             self.config.clear_active_vault()
             return self.info()
 
+    def delete_vault(self, confirmation: str) -> dict[str, Any]:
+        with self._lock:
+            vault, index = self.require()
+            name = str(vault.metadata.get("name", ""))
+            if confirmation != name:
+                raise VaultError("确认名称与当前世界库名称不一致，未执行删除")
+
+            root = vault.root.resolve()
+            protected = {
+                Path(root.anchor).resolve(),
+                Path.home().resolve(),
+                self.paths.root.resolve(),
+                self.paths.runtime.resolve(),
+                self.paths.default_vaults.resolve(),
+            }
+            if root in protected:
+                raise VaultError(f"拒绝删除受保护目录：{root}")
+
+            database = index.database
+            try:
+                shutil.rmtree(root)
+            except OSError as exc:
+                raise VaultError(f"无法删除世界库目录：{exc}") from exc
+
+            self.vault = None
+            self.index = None
+            self.config.forget_vault(root)
+            try:
+                database.unlink(missing_ok=True)
+            except OSError as exc:
+                raise VaultError(f"世界库已删除，但无法清理索引：{exc}") from exc
+
+            return {**self.info(), "deleted_vault": str(root)}
+
     def _activate(self, vault: Vault) -> None:
         self.vault = vault
         self.index = VaultIndex(index_path(self.paths.runtime, vault.root))
@@ -98,6 +133,10 @@ class WorldbuildingService:
     def list_entries(self, **filters: Any) -> list[dict[str, Any]]:
         _, index = self.require()
         return index.list_entries(**filters)
+
+    def dashboard(self) -> dict[str, Any]:
+        _, index = self.require()
+        return index.dashboard()
 
     def get_entry(self, entry_id: str) -> dict[str, Any]:
         vault, index = self.require()
@@ -152,6 +191,67 @@ class WorldbuildingService:
     def graph(self, entry_id: str) -> dict[str, Any]:
         _, index = self.require()
         return index.graph(entry_id)
+
+    def graph_overview(self, limit: int = 250) -> dict[str, Any]:
+        _, index = self.require()
+        return index.graph_overview(limit)
+
+    def list_templates(self) -> list[dict[str, Any]]:
+        vault, _ = self.require()
+        return vault.list_templates()
+
+    def create_template(self, payload: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            vault, _ = self.require()
+            return vault.create_template(payload)
+
+    def delete_template(self, template_id: str) -> dict[str, Any]:
+        with self._lock:
+            vault, _ = self.require()
+            vault.delete_template(template_id)
+            return {"deleted": template_id}
+
+    def bulk_update_entries(
+        self,
+        entry_ids: list[str],
+        *,
+        status: str | None = None,
+        add_tags: list[str] | None = None,
+        remove_tags: list[str] | None = None,
+    ) -> dict[str, Any]:
+        unique_ids = list(dict.fromkeys(entry_ids))
+        if not unique_ids:
+            raise VaultError("至少选择一个条目")
+        if len(unique_ids) > 200:
+            raise VaultError("单次最多批量处理 200 个条目")
+        if status is not None and status not in ENTRY_STATUSES:
+            raise VaultError(f"不支持的内容状态：{status}")
+        if status is None and not add_tags and not remove_tags:
+            raise VaultError("批量操作至少需要调整状态或标签")
+        with self._lock:
+            vault, index = self.require()
+            documents = [vault.find_entry(entry_id) for entry_id in unique_ids]
+            snapshots = {document.path: document.path.read_bytes() for document in documents}
+            added = [str(item).strip() for item in (add_tags or []) if str(item).strip()]
+            removed = {str(item).strip() for item in (remove_tags or []) if str(item).strip()}
+            try:
+                for document in documents:
+                    payload: dict[str, Any] = {}
+                    if status is not None:
+                        payload["status"] = status
+                    if added or removed:
+                        tags = [
+                            tag for tag in document.metadata.get("tags", []) if tag not in removed
+                        ]
+                        payload["tags"] = list(dict.fromkeys([*tags, *added]))
+                    vault.update_entry(str(document.metadata["id"]), payload, document.hash)
+                index.rebuild(vault)
+            except Exception:
+                for path, data in snapshots.items():
+                    Vault._atomic_bytes(path, data)
+                index.rebuild(vault)
+                raise
+            return {"updated": len(unique_ids), "entry_ids": unique_ids}
 
     def save_asset(self, world: str, filename: str, data: bytes) -> dict[str, Any]:
         with self._lock:

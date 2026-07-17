@@ -1,6 +1,6 @@
 # 开发与验证
 
-- 适用版本：0.1.1
+- 适用版本：0.2.0
 - 受众：项目维护者
 - 工作目录：项目仓库根目录
 
@@ -64,8 +64,13 @@ rm -rf build dist
 | --- | --- |
 | `GET /api/health` | 版本和运行状态 |
 | `POST /api/vaults` | 创建世界库 |
+| `DELETE /api/vaults/current` | 输入当前世界库名称后永久删除正文与索引 |
 | `POST /api/worlds` | 创建世界 |
+| `GET /api/dashboard` | 创作驾驶舱的聚合指标、分布与关注队列 |
 | `/api/entries` | 条目检索和写入 |
+| `POST /api/entries/bulk` | 最多 200 条的状态与标签批量治理 |
+| `/api/templates` | 查询、创建和删除世界库自定义模板 |
+| `GET /api/graph` | 全库语义关系与 Wiki 提及网络 |
 | `POST /api/assets` | 上传附件 |
 | `GET /api/checks` | 一致性报告 |
 | `GET /api/timeline` | 时间线 |

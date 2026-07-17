@@ -49,6 +49,63 @@ ALLOWED_ASSET_SUFFIXES = {
 }
 MAX_ASSET_BYTES = 50 * 1024 * 1024
 
+BUILTIN_TEMPLATES = (
+    {
+        "id": "character-profile",
+        "name": "人物档案",
+        "description": "从身份、动机、关系与人物弧光建立可持续补充的人物设定。",
+        "type": "character",
+        "status": "draft",
+        "tags": ["待完善"],
+        "body": "## 一句话定位\n\n\n## 外貌与识别特征\n\n\n## 动机与困境\n\n\n## 经历\n\n\n## 关系网络\n\n",
+    },
+    {
+        "id": "location-atlas",
+        "name": "地点图鉴",
+        "description": "整理空间层级、环境、居民、资源和叙事用途。",
+        "type": "location",
+        "status": "draft",
+        "tags": ["地点档案"],
+        "body": "## 地理位置\n\n\n## 环境与地貌\n\n\n## 居民与文化\n\n\n## 资源与交通\n\n\n## 重要地点\n\n",
+    },
+    {
+        "id": "organization-dossier",
+        "name": "组织卷宗",
+        "description": "记录组织目标、权力结构、成员、资源与外部关系。",
+        "type": "organization",
+        "status": "draft",
+        "tags": ["组织档案"],
+        "body": "## 宗旨\n\n\n## 权力结构\n\n\n## 成员与角色\n\n\n## 资源与影响力\n\n\n## 同盟与对手\n\n",
+    },
+    {
+        "id": "event-record",
+        "name": "事件记录",
+        "description": "以背景、参与者、过程、结果和后续影响组织历史事件。",
+        "type": "event",
+        "status": "draft",
+        "tags": ["事件记录"],
+        "body": "## 背景\n\n\n## 参与者\n\n\n## 过程\n\n\n## 结果\n\n\n## 长期影响\n\n",
+    },
+    {
+        "id": "culture-system",
+        "name": "文化体系",
+        "description": "从价值观、制度、日常生活、语言与禁忌构建文化。",
+        "type": "culture",
+        "status": "draft",
+        "tags": ["文化体系"],
+        "body": "## 核心价值\n\n\n## 社会制度\n\n\n## 日常生活\n\n\n## 语言与符号\n\n\n## 仪式与禁忌\n\n",
+    },
+    {
+        "id": "rule-specification",
+        "name": "规则说明书",
+        "description": "定义魔法、科技、法律或自然规则的边界与代价。",
+        "type": "rule",
+        "status": "draft",
+        "tags": ["规则体系"],
+        "body": "## 规则摘要\n\n\n## 适用范围\n\n\n## 限制与代价\n\n\n## 已知例外\n\n\n## 对世界的影响\n\n",
+    },
+)
+
 
 def utc_local_now() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
@@ -230,6 +287,53 @@ class Vault:
             ),
         )
         return next(item for item in self.worlds() if item["id"] == world_id)
+
+    def list_templates(self) -> list[dict[str, Any]]:
+        templates = [{**item, "builtin": True} for item in BUILTIN_TEMPLATES]
+        for path in sorted((self.root / "templates").glob("*.yaml")):
+            try:
+                value = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+            except (OSError, yaml.YAMLError) as exc:
+                raise ValidationError(f"模板无法解析：{path.name}：{exc}") from exc
+            templates.append({**self._validate_template(value), "builtin": False})
+        return templates
+
+    def create_template(self, payload: dict[str, Any]) -> dict[str, Any]:
+        name = str(payload.get("name", "")).strip()
+        if not name:
+            raise ValidationError("模板名称不能为空")
+        template_id = safe_slug(str(payload.get("id") or name), "template")
+        if any(item["id"] == template_id for item in BUILTIN_TEMPLATES):
+            raise ValidationError("模板 ID 与内置模板冲突")
+        target = self.root / "templates" / f"{template_id}.yaml"
+        if target.exists():
+            raise ValidationError(f"模板已存在：{template_id}")
+        value = self._validate_template(
+            {
+                "id": template_id,
+                "name": name,
+                "description": str(payload.get("description", "")).strip(),
+                "type": str(payload.get("type", "concept")),
+                "status": str(payload.get("status", "draft")),
+                "tags": self._string_list(payload.get("tags", [])),
+                "body": str(payload.get("body", "")),
+            }
+        )
+        self._atomic_text(
+            target,
+            yaml.safe_dump(value, allow_unicode=True, sort_keys=False, width=100),
+        )
+        return {**value, "builtin": False}
+
+    def delete_template(self, template_id: str) -> None:
+        if any(item["id"] == template_id for item in BUILTIN_TEMPLATES):
+            raise ValidationError("内置模板不能删除")
+        if not VALID_NAME_RE.fullmatch(template_id):
+            raise ValidationError("模板 ID 不合法")
+        target = self._inside(self.root / "templates" / f"{template_id}.yaml")
+        if not target.is_file():
+            raise VaultError(f"模板不存在：{template_id}")
+        target.unlink()
 
     def save_asset(self, world: str, filename: str, data: bytes) -> dict[str, str | int]:
         if world not in {item["id"] for item in self.worlds()}:
@@ -421,6 +525,33 @@ class Vault:
             latest = time_value.get("latest_ordinal")
             if earliest is not None and latest is not None and earliest > latest:
                 raise ValidationError("time 的 earliest_ordinal 不能晚于 latest_ordinal")
+
+    @staticmethod
+    def _validate_template(value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            raise ValidationError("模板必须是 YAML 对象")
+        required = ("id", "name", "type", "status")
+        missing = [key for key in required if not str(value.get(key, "")).strip()]
+        if missing:
+            raise ValidationError("模板缺少字段：" + ", ".join(missing))
+        if not VALID_NAME_RE.fullmatch(str(value["id"])):
+            raise ValidationError(f"模板 ID 不合法：{value['id']}")
+        if value["type"] not in ENTRY_TYPES:
+            raise ValidationError(f"模板条目类型不合法：{value['type']}")
+        if value["status"] not in ENTRY_STATUSES:
+            raise ValidationError(f"模板状态不合法：{value['status']}")
+        tags = value.get("tags", [])
+        if not isinstance(tags, list):
+            raise ValidationError("模板 tags 必须是列表")
+        return {
+            "id": str(value["id"]),
+            "name": str(value["name"]).strip(),
+            "description": str(value.get("description", "")).strip(),
+            "type": str(value["type"]),
+            "status": str(value["status"]),
+            "tags": [str(item).strip() for item in tags if str(item).strip()],
+            "body": str(value.get("body", "")),
+        }
 
     @staticmethod
     def _atomic_text(path: Path, text: str) -> None:

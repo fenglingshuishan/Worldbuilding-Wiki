@@ -31,6 +31,10 @@ class VaultOpenRequest(BaseModel):
     path: str
 
 
+class VaultDeleteRequest(BaseModel):
+    confirmation: str = Field(min_length=1, max_length=100)
+
+
 class WorldCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=100)
 
@@ -57,6 +61,22 @@ class ExportRequest(BaseModel):
 
 class ImportCommitRequest(BaseModel):
     conflict_choices: dict[str, str] = Field(default_factory=dict)
+
+
+class TemplateWriteRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    description: str = Field(default="", max_length=300)
+    type: str = "concept"
+    status: str = "draft"
+    tags: list[str] = Field(default_factory=list)
+    body: str = ""
+
+
+class BulkEntryRequest(BaseModel):
+    entry_ids: list[str] = Field(min_length=1, max_length=200)
+    status: str | None = None
+    add_tags: list[str] = Field(default_factory=list)
+    remove_tags: list[str] = Field(default_factory=list)
 
 
 def create_app(service: WorldbuildingService) -> FastAPI:
@@ -98,6 +118,10 @@ def create_app(service: WorldbuildingService) -> FastAPI:
     async def info() -> dict[str, Any]:
         return service.info()
 
+    @app.get("/api/dashboard")
+    async def dashboard() -> dict[str, Any]:
+        return service.dashboard()
+
     @app.get("/api/diagnostics")
     async def diagnostics() -> dict[str, Any]:
         return service.diagnostics()
@@ -125,6 +149,10 @@ def create_app(service: WorldbuildingService) -> FastAPI:
     async def close_vault() -> dict[str, Any]:
         return service.close_vault()
 
+    @app.delete("/api/vaults/current")
+    async def delete_vault(request: VaultDeleteRequest) -> dict[str, Any]:
+        return service.delete_vault(request.confirmation)
+
     @app.post("/api/worlds")
     async def create_world(request: WorldCreateRequest) -> dict[str, Any]:
         return service.create_world(request.name)
@@ -151,6 +179,15 @@ def create_app(service: WorldbuildingService) -> FastAPI:
             request.model_dump(exclude={"expected_hash"}, exclude_none=True)
         )
 
+    @app.post("/api/entries/bulk")
+    async def bulk_entries(request: BulkEntryRequest) -> dict[str, Any]:
+        return service.bulk_update_entries(
+            request.entry_ids,
+            status=request.status,
+            add_tags=request.add_tags,
+            remove_tags=request.remove_tags,
+        )
+
     @app.get("/api/entries/{entry_id}")
     async def get_entry(entry_id: str) -> dict[str, Any]:
         return service.get_entry(entry_id)
@@ -175,6 +212,22 @@ def create_app(service: WorldbuildingService) -> FastAPI:
     @app.get("/api/graph/{entry_id}")
     async def graph(entry_id: str) -> dict[str, Any]:
         return service.graph(entry_id)
+
+    @app.get("/api/graph")
+    async def graph_overview(limit: int = Query(250, ge=1, le=500)) -> dict[str, Any]:
+        return service.graph_overview(limit)
+
+    @app.get("/api/templates")
+    async def templates() -> list[dict[str, Any]]:
+        return service.list_templates()
+
+    @app.post("/api/templates")
+    async def create_template(request: TemplateWriteRequest) -> dict[str, Any]:
+        return service.create_template(request.model_dump())
+
+    @app.delete("/api/templates/{template_id}")
+    async def delete_template(template_id: str) -> dict[str, Any]:
+        return service.delete_template(template_id)
 
     @app.post("/api/assets")
     async def save_asset(request: Request, world: str, filename: str) -> dict[str, Any]:
@@ -226,13 +279,17 @@ def create_app(service: WorldbuildingService) -> FastAPI:
         if asset_name not in media_types:
             raise HTTPException(status_code=404)
         return Response(
-            (static_dir() / asset_name).read_bytes(), media_type=media_types[asset_name]
+            (static_dir() / asset_name).read_bytes(),
+            media_type=media_types[asset_name],
+            headers={"Cache-Control": "no-store"},
         )
 
     @app.get("/{path:path}", include_in_schema=False)
     async def application_shell(path: str) -> Response:
         return Response(
-            (static_dir() / "index.html").read_bytes(), media_type="text/html; charset=utf-8"
+            (static_dir() / "index.html").read_bytes(),
+            media_type="text/html; charset=utf-8",
+            headers={"Cache-Control": "no-store"},
         )
 
     return app
