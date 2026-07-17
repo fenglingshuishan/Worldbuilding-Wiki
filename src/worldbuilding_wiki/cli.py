@@ -16,6 +16,16 @@ from worldbuilding_wiki.service import WorldbuildingService
 from worldbuilding_wiki.web import create_app
 
 
+def _configure_utf8(stream: object) -> None:
+    reconfigure = getattr(stream, "reconfigure", None)
+    if not reconfigure:
+        return
+    try:
+        reconfigure(encoding="utf-8", errors="replace")
+    except (OSError, ValueError):
+        pass
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="worldbuilding-wiki", description="本地世界观知识库")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -44,6 +54,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _configure_utf8(sys.stdout)
+    _configure_utf8(sys.stderr)
     parser = build_parser()
     args = parser.parse_args(argv)
     command = args.command or "serve"
