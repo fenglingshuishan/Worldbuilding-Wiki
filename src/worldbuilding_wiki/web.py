@@ -17,7 +17,7 @@ from worldbuilding_wiki.errors import (
     VaultError,
     WorldbuildingWikiError,
 )
-from worldbuilding_wiki.resources import static_dir
+from worldbuilding_wiki.resources import sample_data_dir, static_dir
 from worldbuilding_wiki.service import WorldbuildingService
 
 
@@ -25,6 +25,7 @@ class VaultCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     world_name: str = Field(default="主世界", min_length=1, max_length=100)
     path: str | None = None
+    include_sample: bool = True
 
 
 class VaultOpenRequest(BaseModel):
@@ -51,6 +52,9 @@ class EntryWriteRequest(BaseModel):
     relations: list[dict[str, Any]] = Field(default_factory=list)
     time: dict[str, Any] | None = None
     claims: list[dict[str, Any]] | None = None
+    template_id: str | None = None
+    template_version: int | None = None
+    custom_fields: dict[str, Any] | None = None
     expected_hash: str | None = None
 
 
@@ -70,6 +74,14 @@ class TemplateWriteRequest(BaseModel):
     status: str = "draft"
     tags: list[str] = Field(default_factory=list)
     body: str = ""
+    fields: list[dict[str, Any]] = Field(default_factory=list)
+    expected_version: int | None = None
+
+
+class TemplateMigrationRequest(BaseModel):
+    entry_ids: list[str] = Field(min_length=1, max_length=200)
+    target_template_id: str
+    field_mapping: dict[str, str] = Field(default_factory=dict)
 
 
 class BulkEntryRequest(BaseModel):
@@ -77,6 +89,33 @@ class BulkEntryRequest(BaseModel):
     status: str | None = None
     add_tags: list[str] = Field(default_factory=list)
     remove_tags: list[str] = Field(default_factory=list)
+
+
+class EntryRestoreRequest(BaseModel):
+    revision_id: str
+    expected_hash: str | None = None
+
+
+class MapWriteRequest(BaseModel):
+    name: str | None = None
+    layers: list[dict[str, Any]] | None = None
+    markers: list[dict[str, Any]] | None = None
+    expected_hash: str | None = None
+
+
+class BranchVariantRequest(BaseModel):
+    target_branch: str
+
+
+class BranchMergeRequest(BaseModel):
+    base_branch: str
+    target_branch: str
+    decisions: dict[str, str] = Field(default_factory=dict)
+
+
+class AIProposalRequest(BaseModel):
+    entry_ids: list[str] = Field(min_length=1, max_length=20)
+    instruction: str = Field(min_length=1, max_length=2000)
 
 
 def create_app(service: WorldbuildingService) -> FastAPI:
@@ -126,6 +165,26 @@ def create_app(service: WorldbuildingService) -> FastAPI:
     async def diagnostics() -> dict[str, Any]:
         return service.diagnostics()
 
+    @app.get("/api/ai/info")
+    async def ai_info() -> dict[str, Any]:
+        return service.ai_info()
+
+    @app.post("/api/ai/scope")
+    async def preview_ai_scope(request: AIProposalRequest) -> dict[str, Any]:
+        return service.preview_ai_scope(request.entry_ids, request.instruction)
+
+    @app.post("/api/ai/proposals")
+    async def generate_ai_proposal(request: AIProposalRequest) -> dict[str, Any]:
+        return service.generate_ai_proposal(request.entry_ids, request.instruction)
+
+    @app.get("/api/ai/proposals")
+    async def ai_proposals() -> list[dict[str, Any]]:
+        return service.list_ai_proposals()
+
+    @app.delete("/api/ai/proposals/{proposal_id}")
+    async def delete_ai_proposal(proposal_id: str) -> dict[str, str]:
+        return service.delete_ai_proposal(proposal_id)
+
     @app.post("/api/application/exit")
     async def exit_application() -> dict[str, bool]:
         callback = getattr(app.state, "shutdown_callback", None)
@@ -139,6 +198,7 @@ def create_app(service: WorldbuildingService) -> FastAPI:
             request.name,
             request.world_name,
             Path(request.path) if request.path else None,
+            include_sample=request.include_sample,
         )
 
     @app.post("/api/vaults/open")
@@ -156,6 +216,18 @@ def create_app(service: WorldbuildingService) -> FastAPI:
     @app.post("/api/worlds")
     async def create_world(request: WorldCreateRequest) -> dict[str, Any]:
         return service.create_world(request.name)
+
+    @app.get("/api/sample")
+    async def sample() -> dict[str, Any]:
+        return service.sample_status()
+
+    @app.post("/api/sample/restore")
+    async def restore_sample_data() -> dict[str, Any]:
+        return service.restore_sample()
+
+    @app.delete("/api/sample")
+    async def delete_sample_data() -> dict[str, Any]:
+        return service.delete_sample()
 
     @app.post("/api/reindex")
     async def reindex() -> dict[str, int]:
@@ -192,9 +264,26 @@ def create_app(service: WorldbuildingService) -> FastAPI:
     async def get_entry(entry_id: str) -> dict[str, Any]:
         return service.get_entry(entry_id)
 
+    @app.get("/api/entries/{entry_id}/history")
+    async def entry_history(entry_id: str) -> dict[str, Any]:
+        return service.entry_history(entry_id)
+
+    @app.get("/api/entries/{entry_id}/diff")
+    async def entry_diff(
+        entry_id: str, revision_id: str, against_revision_id: str | None = None
+    ) -> dict[str, Any]:
+        return service.entry_diff(entry_id, revision_id, against_revision_id)
+
+    @app.post("/api/entries/{entry_id}/restore")
+    async def restore_entry(entry_id: str, request: EntryRestoreRequest) -> dict[str, Any]:
+        return service.restore_entry(entry_id, request.revision_id, request.expected_hash)
+
     @app.put("/api/entries/{entry_id}")
     async def update_entry(entry_id: str, request: EntryWriteRequest) -> dict[str, Any]:
-        payload = request.model_dump(exclude={"expected_hash", "type", "world"})
+        payload = request.model_dump(
+            exclude={"expected_hash", "type", "world", "template_id", "template_version"},
+            exclude_none=True,
+        )
         return service.update_entry(entry_id, payload, request.expected_hash)
 
     @app.delete("/api/entries/{entry_id}")
@@ -209,6 +298,22 @@ def create_app(service: WorldbuildingService) -> FastAPI:
     async def timeline() -> list[dict[str, Any]]:
         return service.timeline()
 
+    @app.get("/api/branches")
+    async def branches() -> list[str]:
+        return service.list_branches()
+
+    @app.post("/api/branches/variants/{entry_id}")
+    async def create_branch_variant(entry_id: str, request: BranchVariantRequest) -> dict[str, Any]:
+        return service.create_branch_variant(entry_id, request.target_branch)
+
+    @app.get("/api/branches/compare")
+    async def compare_branches(base_branch: str, target_branch: str) -> dict[str, Any]:
+        return service.compare_branches(base_branch, target_branch)
+
+    @app.post("/api/branches/merge")
+    async def merge_branches(request: BranchMergeRequest) -> dict[str, Any]:
+        return service.merge_branches(request.base_branch, request.target_branch, request.decisions)
+
     @app.get("/api/graph/{entry_id}")
     async def graph(entry_id: str) -> dict[str, Any]:
         return service.graph(entry_id)
@@ -221,13 +326,50 @@ def create_app(service: WorldbuildingService) -> FastAPI:
     async def templates() -> list[dict[str, Any]]:
         return service.list_templates()
 
+    @app.get("/api/templates/{template_id}/versions/{version}")
+    async def template_version(template_id: str, version: int) -> dict[str, Any]:
+        return service.get_template_version(template_id, version)
+
     @app.post("/api/templates")
     async def create_template(request: TemplateWriteRequest) -> dict[str, Any]:
-        return service.create_template(request.model_dump())
+        return service.create_template(request.model_dump(exclude={"expected_version"}))
+
+    @app.put("/api/templates/{template_id}")
+    async def update_template(template_id: str, request: TemplateWriteRequest) -> dict[str, Any]:
+        return service.update_template(template_id, request.model_dump())
+
+    @app.post("/api/templates/migration/preview")
+    async def preview_template_migration(request: TemplateMigrationRequest) -> dict[str, Any]:
+        return service.preview_template_migration(
+            request.entry_ids, request.target_template_id, request.field_mapping
+        )
+
+    @app.post("/api/templates/migration/apply")
+    async def apply_template_migration(request: TemplateMigrationRequest) -> dict[str, Any]:
+        return service.migrate_template_entries(
+            request.entry_ids, request.target_template_id, request.field_mapping
+        )
 
     @app.delete("/api/templates/{template_id}")
     async def delete_template(template_id: str) -> dict[str, Any]:
         return service.delete_template(template_id)
+
+    @app.get("/api/maps")
+    async def maps(world: str = "") -> list[dict[str, Any]]:
+        return service.list_maps(world)
+
+    @app.post("/api/maps")
+    async def create_map(request: Request, world: str, name: str, filename: str) -> dict[str, Any]:
+        return service.create_map(world, name, filename, await request.body())
+
+    @app.put("/api/maps/{map_id}")
+    async def update_map(map_id: str, request: MapWriteRequest) -> dict[str, Any]:
+        payload = request.model_dump(exclude={"expected_hash"}, exclude_none=True)
+        return service.update_map(map_id, payload, request.expected_hash)
+
+    @app.delete("/api/maps/{map_id}")
+    async def delete_map(map_id: str, expected_hash: str | None = None) -> dict[str, str]:
+        return service.delete_map(map_id, expected_hash)
 
     @app.post("/api/assets")
     async def save_asset(request: Request, world: str, filename: str) -> dict[str, Any]:
@@ -275,11 +417,17 @@ def create_app(service: WorldbuildingService) -> FastAPI:
         media_types = {
             "app.css": "text/css; charset=utf-8",
             "app.js": "text/javascript; charset=utf-8",
+            "sample-tidal-map.webp": "image/webp",
         }
         if asset_name not in media_types:
             raise HTTPException(status_code=404)
+        asset_path = (
+            sample_data_dir() / "tidal-archive-map.webp"
+            if asset_name == "sample-tidal-map.webp"
+            else static_dir() / asset_name
+        )
         return Response(
-            (static_dir() / asset_name).read_bytes(),
+            asset_path.read_bytes(),
             media_type=media_types[asset_name],
             headers={"Cache-Control": "no-store"},
         )

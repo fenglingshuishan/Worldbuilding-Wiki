@@ -39,7 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--no-browser", action="store_true")
     serve.add_argument("--log-level", default="warning")
 
-    create = subparsers.add_parser("create-vault", help="创建一个空世界库")
+    create = subparsers.add_parser("create-vault", help="创建世界库并载入内置示例")
     create.add_argument("path", type=Path)
     create.add_argument("--name", default="我的世界库")
     create.add_argument("--world", default="主世界")
@@ -64,7 +64,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if command == "create-vault":
             service = WorldbuildingService(paths)
-            info = service.create_vault(args.name, args.world, args.path)
+            info = service.create_vault(args.name, args.world, args.path, include_sample=True)
             print(info["active_vault"])
             return 0
         if command == "reindex":

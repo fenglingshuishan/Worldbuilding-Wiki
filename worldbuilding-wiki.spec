@@ -14,7 +14,11 @@ analysis = Analysis(
         (
             str(source_root / "worldbuilding_wiki" / "static"),
             "worldbuilding_wiki/static",
-        )
+        ),
+        (
+            str(source_root / "worldbuilding_wiki" / "sample_data"),
+            "worldbuilding_wiki/sample_data",
+        ),
     ],
     hiddenimports=collect_submodules("uvicorn"),
     hookspath=[],

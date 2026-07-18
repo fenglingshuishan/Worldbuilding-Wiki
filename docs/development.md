@@ -1,6 +1,6 @@
 # 开发与验证
 
-- 适用版本：0.2.0
+- 适用版本：0.4.0
 - 受众：项目维护者
 - 工作目录：项目仓库根目录
 
@@ -66,11 +66,18 @@ rm -rf build dist
 | `POST /api/vaults` | 创建世界库 |
 | `DELETE /api/vaults/current` | 输入当前世界库名称后永久删除正文与索引 |
 | `POST /api/worlds` | 创建世界 |
-| `GET /api/dashboard` | 创作驾驶舱的聚合指标、分布与关注队列 |
+| `GET /api/dashboard` | 首页聚合指标、分布与最近活动 |
+| `GET /api/sample` | 查询内置示例是否完整、部分存在或未载入 |
+| `POST /api/sample/restore` | 原位写入或重置固定标记的标准示例 |
+| `DELETE /api/sample` | 仅删除带固定示例标记的数据 |
 | `/api/entries` | 条目检索和写入 |
 | `POST /api/entries/bulk` | 最多 200 条的状态与标签批量治理 |
-| `/api/templates` | 查询、创建和删除世界库自定义模板 |
+| `/api/templates` | 查询、创建、升级和删除世界库自定义模板 |
+| `/api/templates/migration/*` | 预览并原子应用跨模板字段迁移 |
 | `GET /api/graph` | 全库语义关系与 Wiki 提及网络 |
+| `/api/maps` | 地图原图、图层和地点标记 |
+| `/api/branches/*` | 创建变体、比较分支和执行显式合并决定 |
+| `/api/ai/*` | 预览发送范围并管理只读 AI 提案 |
 | `POST /api/assets` | 上传附件 |
 | `GET /api/checks` | 一致性报告 |
 | `GET /api/timeline` | 时间线 |

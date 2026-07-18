@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import pytest
+import yaml
 
-from worldbuilding_wiki.errors import ConflictError, ValidationError
+from worldbuilding_wiki.errors import ConflictError, ValidationError, VaultError
 from worldbuilding_wiki.rendering import render_markdown
 from worldbuilding_wiki.service import WorldbuildingService
 
@@ -69,6 +70,48 @@ def test_external_edit_conflict_does_not_overwrite(service: WorldbuildingService
     with pytest.raises(ConflictError):
         service.update_entry(character["id"], {"title": "不应覆盖"}, old_hash)
     assert "外部修改" in document.path.read_text(encoding="utf-8")
+
+
+def test_entry_history_diff_and_restore_are_recoverable(service: WorldbuildingService) -> None:
+    world = service.info()["worlds"][0]["id"]
+    original = service.create_entry(
+        {
+            "type": "concept",
+            "title": "旧标题",
+            "status": "draft",
+            "world": world,
+            "body": "第一版正文。",
+        }
+    )["entry"]
+    second = service.update_entry(
+        original["id"],
+        {"title": "第二版", "status": "canon", "body": "第二版正文。"},
+        original["content_hash"],
+    )["entry"]
+    current = service.update_entry(
+        original["id"],
+        {"title": "当前标题", "body": "当前正文。"},
+        second["content_hash"],
+    )["entry"]
+
+    history = service.entry_history(original["id"])
+    assert history["current"]["content_hash"] == current["content_hash"]
+    assert [item["title"] for item in history["revisions"]] == ["第二版", "旧标题"]
+    oldest_revision = history["revisions"][-1]["revision_id"]
+
+    diff = service.entry_diff(original["id"], oldest_revision)
+    assert diff["summary"]["added"] > 0
+    assert diff["summary"]["deleted"] > 0
+    assert any(line["kind"] == "delete" and "第一版正文" in line["text"] for line in diff["lines"])
+    assert any(line["kind"] == "add" and "当前正文" in line["text"] for line in diff["lines"])
+
+    restored = service.restore_entry(original["id"], oldest_revision, current["content_hash"])[
+        "entry"
+    ]
+    assert restored["title"] == "旧标题"
+    assert restored["status"] == "draft"
+    assert restored["body"] == "第一版正文。\n"
+    assert service.entry_history(original["id"])["revisions"][0]["title"] == "当前标题"
 
 
 def test_invalid_time_range_is_rejected(service: WorldbuildingService) -> None:
@@ -176,3 +219,233 @@ def test_platform_dashboard_templates_graph_and_bulk_workflow(
 
     service.delete_template(custom["id"])
     assert not any(item["id"] == custom["id"] for item in service.list_templates())
+
+
+def test_template_fields_versions_and_cross_template_migration(
+    service: WorldbuildingService,
+) -> None:
+    world = service.info()["worlds"][0]["id"]
+    source = service.create_template(
+        {
+            "name": "城镇档案",
+            "type": "location",
+            "fields": [
+                {"id": "population", "name": "人口", "type": "number", "required": True},
+                {
+                    "id": "climate",
+                    "name": "气候",
+                    "type": "select",
+                    "options": ["寒冷", "温暖"],
+                },
+            ],
+        }
+    )
+    entry = service.create_entry(
+        {
+            "title": "雾港",
+            "type": "location",
+            "world": world,
+            "template_id": source["id"],
+            "custom_fields": {"population": 1200, "climate": "寒冷"},
+        }
+    )["entry"]
+    assert entry["template"] == {"id": source["id"], "version": 1}
+    assert entry["custom_fields"]["population"] == 1200.0
+
+    upgraded = service.update_template(
+        source["id"],
+        {
+            **{
+                key: source[key]
+                for key in ("name", "description", "type", "status", "tags", "body")
+            },
+            "fields": [
+                *source["fields"],
+                {"id": "founded", "name": "建城年代", "type": "text"},
+            ],
+            "expected_version": 1,
+        },
+    )
+    assert upgraded["version"] == 2
+    vault, _ = service.require()
+    assert vault.find_template_version(source["id"], 1)["fields"] == source["fields"]
+
+    target = service.create_template(
+        {
+            "name": "聚落新模板",
+            "type": "location",
+            "fields": [
+                {"id": "residents", "name": "居民数", "type": "number", "required": True},
+                {"id": "notes", "name": "备注", "type": "text", "default": "待补充"},
+            ],
+        }
+    )
+    blocked = service.preview_template_migration([entry["id"]], target["id"], {})
+    assert blocked["can_apply"] is False
+    preview = service.preview_template_migration(
+        [entry["id"]], target["id"], {"population": "residents"}
+    )
+    assert preview["can_apply"] is True
+    assert preview["entries"][0]["custom_fields"] == {
+        "residents": 1200.0,
+        "notes": "待补充",
+    }
+    result = service.migrate_template_entries(
+        [entry["id"]], target["id"], {"population": "residents"}
+    )
+    assert result["migrated"] == 1
+    migrated = service.get_entry(entry["id"])["entry"]
+    assert migrated["template"] == {"id": target["id"], "version": 1}
+    assert migrated["custom_fields"]["residents"] == 1200.0
+    service.delete_template(target["id"])
+    assert vault.find_template_version(target["id"], 1)["fields"] == target["fields"]
+
+
+def test_branch_variants_compare_and_explainable_merge(service: WorldbuildingService) -> None:
+    world = service.info()["worlds"][0]["id"]
+    base = service.create_entry(
+        {
+            "type": "event",
+            "title": "王都大火",
+            "world": world,
+            "branch": "main",
+            "body": "大火摧毁旧城。",
+        }
+    )["entry"]
+    variant = service.create_branch_variant(base["id"], "peace-route")["entry"]
+    assert variant["variant_of"] == base["id"]
+    changed = service.update_entry(
+        variant["id"],
+        {"title": "王都和谈", "body": "大火被和谈阻止。"},
+        variant["content_hash"],
+    )["entry"]
+
+    comparison = service.compare_branches("main", "peace-route")
+    assert comparison["summary"]["overridden"] == 1
+    assert comparison["changes"][0]["base_id"] == base["id"]
+    kept = service.merge_branches("main", "peace-route", {changed["id"]: "keep_base"})
+    assert kept["records"][0]["action"] == "keep_base"
+    assert service.get_entry(base["id"])["entry"]["title"] == "王都大火"
+
+    merged = service.merge_branches("main", "peace-route", {changed["id"]: "accept_target"})
+    assert merged["records"][0]["base_id"] == base["id"]
+    main = service.get_entry(base["id"])["entry"]
+    assert main["title"] == "王都和谈"
+    assert main["body"] == "大火被和谈阻止。\n"
+    assert main["merge_record"]["source_id"] == changed["id"]
+    assert service.compare_branches("main", "peace-route")["summary"]["synchronized"] == 1
+
+
+def test_ai_scope_is_explicit_and_output_stays_in_proposal_area(
+    service: WorldbuildingService,
+) -> None:
+    world = service.info()["worlds"][0]["id"]
+    entry = service.create_entry(
+        {"type": "concept", "title": "潮汐律", "world": world, "body": "每十三日倒流。"}
+    )["entry"]
+
+    class FakeSettings:
+        @staticmethod
+        def public_info() -> dict:
+            return {
+                "mode": "local",
+                "enabled": True,
+                "model": "test-model",
+                "endpoint_origin": "http://127.0.0.1:11434",
+                "has_api_key": False,
+            }
+
+    class FakeAI:
+        settings = FakeSettings()
+
+        @staticmethod
+        def generate(prompt: str) -> str:
+            assert "潮汐律" in prompt
+            assert "每十三日倒流" in prompt
+            return "建议补充倒流的能量代价。"
+
+    service.ai = FakeAI()
+    preview = service.preview_ai_scope([entry["id"]], "检查规则缺口")
+    assert preview["scope"][0]["fields"] == [
+        "id",
+        "title",
+        "type",
+        "status",
+        "branch",
+        "tags",
+        "body",
+    ]
+    proposal = service.generate_ai_proposal([entry["id"]], "检查规则缺口")
+    assert proposal["status"] == "proposal"
+    assert service.get_entry(entry["id"])["entry"]["body"] == "每十三日倒流。\n"
+    assert service.list_ai_proposals()[0]["content"] == "建议补充倒流的能量代价。"
+    assert service.delete_ai_proposal(proposal["id"])["deleted"] == proposal["id"]
+
+
+def test_complete_sample_data_can_be_deleted_and_restored_without_touching_user_content(
+    service: WorldbuildingService,
+) -> None:
+    assert service.sample_status()["state"] == "absent"
+
+    restored = service.restore_sample()
+    assert restored["state"] == "complete"
+    assert restored["entries"] == restored["total_entries"] == 13
+    sample_world = restored["world_id"]
+    assert any(item["id"] == sample_world for item in service.info()["worlds"])
+    assert service.list_maps(sample_world)[0]["markers"]
+    assert any(item["id"] == "sample-location-record" for item in service.list_templates())
+    assert service.list_entries(query="潮汐档案")[0]["id"] == "concept_5a0000000001"
+
+    sample_entry = service.get_entry("concept_5a0000000001")["entry"]
+    service.update_entry(
+        sample_entry["id"],
+        {"title": "被修改的示例", "body": "临时修改。"},
+        sample_entry["content_hash"],
+    )
+    user_entry = service.create_entry(
+        {
+            "type": "concept",
+            "title": "用户自己的内容",
+            "world": sample_world,
+            "body": "即使删除示例也必须保留。",
+        }
+    )["entry"]
+
+    deleted = service.delete_sample()
+    assert deleted["state"] == "absent"
+    assert deleted["removed_entries"] == 13
+    assert service.get_entry(user_entry["id"])["entry"]["title"] == "用户自己的内容"
+    assert any(item["id"] == sample_world for item in service.info()["worlds"])
+
+    service.restore_sample()
+    reset_entry = service.get_entry("concept_5a0000000001")["entry"]
+    assert reset_entry["title"] == "潮汐档案"
+    assert len(service.list_entries(world=sample_world, limit=1000)) == 14
+
+
+def test_sample_tools_refuse_unmarked_template_and_map_collisions(
+    service: WorldbuildingService,
+) -> None:
+    restored = service.restore_sample()
+    vault = service.require()[0]
+    template_path = vault.root / "templates" / "sample-location-record.yaml"
+    map_path = vault.root / "worlds" / restored["world_id"] / "maps" / "map_5a000000000e.yaml"
+    template = yaml.safe_load(template_path.read_text(encoding="utf-8"))
+    map_data = yaml.safe_load(map_path.read_text(encoding="utf-8"))
+    template.pop("sample_set")
+    map_data.pop("sample_set")
+    template_path.write_text(
+        yaml.safe_dump(template, allow_unicode=True, sort_keys=False), encoding="utf-8"
+    )
+    map_path.write_text(
+        yaml.safe_dump(map_data, allow_unicode=True, sort_keys=False), encoding="utf-8"
+    )
+
+    result = service.delete_sample()
+    assert result["removed_entries"] == 13
+    assert template_path.is_file()
+    assert map_path.is_file()
+
+    with pytest.raises(VaultError, match="示例模板路径已被其他内容占用"):
+        service.restore_sample()
+    assert service.list_entries(world=restored["world_id"], limit=1000) == []

@@ -2,6 +2,7 @@ include LICENSE.txt
 include CHANGELOG.md
 include worldbuilding-wiki.spec
 recursive-include src/worldbuilding_wiki/static *
+recursive-include src/worldbuilding_wiki/sample_data *
 recursive-include docs *.md
 recursive-include packaging *.txt
 recursive-include scripts *.py

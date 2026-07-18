@@ -40,4 +40,4 @@ WorldbuildingWiki create-vault PATH --name "我的世界库" --world "主世界"
 WorldbuildingWiki reindex --vault PATH
 WorldbuildingWiki export --vault PATH
 
-本发行包不附带任何具体世界观数据。
+本发行包附带明确标为“示例全套数据”的虚构展示副本，不含任何用户世界观数据。

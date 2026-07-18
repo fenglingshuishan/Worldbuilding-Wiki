@@ -33,7 +33,9 @@ def test_first_run_create_edit_search_and_export(tmp_path: Path) -> None:
     assert shell.headers["cache-control"] == "no-store"
     frontend = request(app, "GET", "/assets/app.js")
     assert frontend.headers["cache-control"] == "no-store"
-    assert "校验 <code>.worldvault</code>" in frontend.text
+    assert "示例全套数据" in frontend.text
+    assert 'api("/api/sample/restore"' in frontend.text
+    assert 'api("/api/sample", {method:"DELETE"})' in frontend.text
     assert "router().catch(renderStartupError)" in frontend.text
     assert 'link.setAttribute("aria-disabled"' in frontend.text
     assert "请先创建、打开或导入一个世界库" in frontend.text
@@ -41,13 +43,24 @@ def test_first_run_create_edit_search_and_export(tmp_path: Path) -> None:
     assert "永久删除当前世界库" in frontend.text
     assert "confirmAction" in frontend.text
     assert 'api("/api/dashboard")' in frontend.text
-    assert "CONTENT BLUEPRINTS" in frontend.text
+    assert "BLUEPRINTS" in frontend.text
     assert "KNOWLEDGE GRAPH" in frontend.text
     assert 'api("/api/entries/bulk"' in frontend.text
+    assert "HISTORY" in frontend.text
+    assert "/history" in frontend.text
+    assert 'api("/api/maps")' in frontend.text
+    assert 'class="map-marker"' in frontend.text
     assert 'setAttribute("aria-current", "page")' in frontend.text
     assert "prompt(" not in frontend.text
     stylesheet = request(app, "GET", "/assets/app.css")
     assert ".sidebar nav a.disabled" in stylesheet.text
+    assert ".map-canvas" in stylesheet.text
+    assert "prefers-reduced-motion" in stylesheet.text
+    assert "@keyframes orbit-spin" in stylesheet.text
+    sample_map = request(app, "GET", "/assets/sample-tidal-map.webp")
+    assert sample_map.status_code == 200
+    assert sample_map.headers["content-type"] == "image/webp"
+    assert sample_map.content.startswith(b"RIFF")
 
     created = request(
         app,
@@ -56,6 +69,14 @@ def test_first_run_create_edit_search_and_export(tmp_path: Path) -> None:
         json={"name": "接口世界库", "world_name": "镜海", "path": str(tmp_path / "vault")},
     )
     assert created.status_code == 200
+    sample = request(app, "GET", "/api/sample")
+    assert sample.json()["state"] == "complete"
+    assert sample.json()["entries"] == 13
+    deleted_sample = request(app, "DELETE", "/api/sample")
+    assert deleted_sample.json()["state"] == "absent"
+    assert deleted_sample.json()["removed_entries"] == 13
+    restored_sample = request(app, "POST", "/api/sample/restore")
+    assert restored_sample.json()["state"] == "complete"
     world = created.json()["worlds"][0]["id"]
     second_world = request(app, "POST", "/api/worlds", json={"name": "另一重天"})
     assert second_world.status_code == 200
@@ -108,6 +129,37 @@ def test_first_run_create_edit_search_and_export(tmp_path: Path) -> None:
     assert updated.status_code == 200
     assert updated.json()["entry"]["title"] == "潮汐定律"
 
+    history = request(app, "GET", f"/api/entries/{entry_data['id']}/history")
+    assert history.status_code == 200
+    assert history.json()["revisions"][0]["title"] == "潮汐律"
+    revision_id = history.json()["revisions"][0]["revision_id"]
+    diff = request(
+        app,
+        "GET",
+        f"/api/entries/{entry_data['id']}/diff",
+        params={"revision_id": revision_id},
+    )
+    assert diff.status_code == 200
+    assert diff.json()["summary"]["added"] > 0
+    stale_restore = request(
+        app,
+        "POST",
+        f"/api/entries/{entry_data['id']}/restore",
+        json={"revision_id": revision_id, "expected_hash": "0" * 64},
+    )
+    assert stale_restore.status_code == 409
+    restored = request(
+        app,
+        "POST",
+        f"/api/entries/{entry_data['id']}/restore",
+        json={
+            "revision_id": revision_id,
+            "expected_hash": updated.json()["entry"]["content_hash"],
+        },
+    )
+    assert restored.status_code == 200
+    assert restored.json()["entry"]["title"] == "潮汐律"
+
     export = request(
         app,
         "POST",
@@ -134,7 +186,8 @@ def test_first_run_create_edit_search_and_export(tmp_path: Path) -> None:
         json={"conflict_choices": {}},
     )
     assert committed.status_code == 200
-    assert receiving_service.list_entries(query="潮汐定律")[0]["id"] == entry_data["id"]
+    assert receiving_service.list_entries(query="潮汐律")[0]["id"] == entry_data["id"]
+    assert receiving_service.entry_history(entry_data["id"])["revisions"] == []
 
 
 def test_api_reports_edit_conflict(tmp_path: Path) -> None:
@@ -166,6 +219,72 @@ def test_api_reports_edit_conflict(tmp_path: Path) -> None:
     )
     assert response.status_code == 409
     assert "重新加载" in response.json()["message"]
+
+
+def test_map_workspace_keeps_image_layers_and_markers_separate(tmp_path: Path) -> None:
+    service = WorldbuildingService(AppPaths(tmp_path / "app-data"))
+    service.create_vault("地图测试", "主世界", tmp_path / "vault")
+    app = create_app(service)
+    world = service.info()["worlds"][0]["id"]
+    location = request(
+        app,
+        "POST",
+        "/api/entries",
+        json={"type": "location", "title": "雾港", "world": world},
+    ).json()["entry"]
+
+    created = request(
+        app,
+        "POST",
+        "/api/maps",
+        params={"world": world, "name": "北境地图", "filename": "north.png"},
+        content=b"fake-map-image",
+    )
+    assert created.status_code == 200
+    map_data = created.json()
+    assert map_data["layers"] == [{"id": "base", "name": "默认图层", "visible": True}]
+    assert request(app, "GET", map_data["image_url"]).content == b"fake-map-image"
+
+    updated = request(
+        app,
+        "PUT",
+        f"/api/maps/{map_data['id']}",
+        json={
+            "layers": [
+                {"id": "base", "name": "默认图层", "visible": True},
+                {"id": "politics", "name": "政治", "visible": True},
+            ],
+            "markers": [
+                {
+                    "layer_id": "politics",
+                    "location_id": location["id"],
+                    "x": 0.25,
+                    "y": 0.75,
+                }
+            ],
+            "expected_hash": map_data["content_hash"],
+        },
+    )
+    assert updated.status_code == 200
+    assert updated.json()["markers"][0]["location_id"] == location["id"]
+    assert updated.json()["markers"][0]["x"] == 0.25
+    assert (tmp_path / "vault" / "worlds" / world / "maps" / f"{map_data['id']}.yaml").is_file()
+
+    stale = request(
+        app,
+        "PUT",
+        f"/api/maps/{map_data['id']}",
+        json={"name": "不应覆盖", "expected_hash": map_data["content_hash"]},
+    )
+    assert stale.status_code == 409
+    deleted = request(
+        app,
+        "DELETE",
+        f"/api/maps/{map_data['id']}",
+        params={"expected_hash": updated.json()["content_hash"]},
+    )
+    assert deleted.status_code == 200
+    assert request(app, "GET", "/api/maps").json() == []
 
 
 def test_delete_current_vault_requires_exact_name_and_removes_data(tmp_path: Path) -> None:

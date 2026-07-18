@@ -12,6 +12,7 @@ def package_root() -> Path:
         root / "static" / "index.html",
         root / "static" / "app.css",
         root / "static" / "app.js",
+        root / "sample_data" / "tidal-archive-map.webp",
     )
     missing = [str(path) for path in required if not path.is_file()]
     if missing:
@@ -23,3 +24,7 @@ def package_root() -> Path:
 
 def static_dir() -> Path:
     return package_root() / "static"
+
+
+def sample_data_dir() -> Path:
+    return package_root() / "sample_data"

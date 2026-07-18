@@ -104,8 +104,11 @@ def smoke_test_server(executable: Path, root: Path) -> None:
         )
         if not created.get("ready"):
             raise SystemExit(f"standalone could not create a vault: {created}")
+        sample = request_json(f"{base_url}/api/sample")
+        if sample.get("state") != "complete" or sample.get("entries") != 13:
+            raise SystemExit(f"standalone sample data is incomplete: {sample}")
         dashboard = request_json(f"{base_url}/api/dashboard")
-        if dashboard.get("summary", {}).get("entries") != 0:
+        if dashboard.get("summary", {}).get("entries") != 13:
             raise SystemExit(f"unexpected dashboard response: {dashboard}")
     finally:
         if process.poll() is None:

@@ -15,14 +15,19 @@
           <span><strong>构界</strong><small>创作中枢</small></span>
         </a>
         <nav aria-label="主要导航">
-          <a href="#/" data-nav="home"><span>01</span>创作总览</a>
-          <a href="#/entries" data-nav="entries"><span>02</span>内容库</a>
-          <a href="#/templates" data-nav="templates"><span>03</span>模板中心</a>
-          <a href="#/timeline" data-nav="timeline"><span>04</span>时间线</a>
-          <a href="#/relations" data-nav="relations"><span>05</span>关系网络</a>
-          <a href="#/checks" data-nav="checks"><span>06</span>质量中心 <b id="check-badge"></b></a>
-          <a href="#/transfer" data-nav="transfer"><span>07</span>迁移与发布</a>
-          <a href="#/settings" data-nav="settings"><span>08</span>平台设置</a>
+          <small class="nav-section">创作</small>
+          <a href="#/" data-nav="home"><span>⌂</span>总览</a>
+          <a href="#/entries" data-nav="entries"><span>◇</span>条目</a>
+          <a href="#/templates" data-nav="templates"><span>▤</span>模板</a>
+          <small class="nav-section">探索</small>
+          <a href="#/timeline" data-nav="timeline"><span>◷</span>时间</a>
+          <a href="#/relations" data-nav="relations"><span>⌘</span>关系</a>
+          <a href="#/maps" data-nav="maps"><span>⌖</span>地图</a>
+          <small class="nav-section">工具</small>
+          <a href="#/checks" data-nav="checks"><span>✓</span>检查 <b id="check-badge"></b></a>
+          <a href="#/suggestions" data-nav="suggestions"><span>✦</span>AI 提案</a>
+          <a href="#/transfer" data-nav="transfer"><span>⇧</span>导入导出</a>
+          <a href="#/settings" data-nav="settings"><span>⚙</span>设置</a>
         </nav>
         <div class="sidebar-footer">
           <span><i class="status-mark" aria-hidden="true"></i><b id="vault-indicator">尚未打开世界库</b></span>
@@ -37,7 +42,7 @@
             <span aria-hidden="true">⌕</span><input id="search-input" type="search" placeholder="搜索整个世界库" autocomplete="off">
             <kbd>/</kbd>
           </form>
-          <a id="new-entry-button" class="button primary" href="#/new"><span>＋</span>新建条目</a>
+          <a id="new-entry-button" class="button primary" href="#/new"><span>＋</span>新建</a>
         </header>
         <main id="content" tabindex="-1"><div class="loading">正在打开世界库……</div></main>
       </div>
